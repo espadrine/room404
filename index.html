@@ -1,0 +1,1012 @@
+<!doctype html><title>Room 1</title>
+<style>
+  body{margin:0}
+  #c{position:absolute;width:100%;height:100%}
+  #msgNode,#infoNode{color:white;font-family:monospace}
+  #msgNode{position:absolute;width:100%;bottom:50%;font-size:2em;text-align:center}
+  #infoNode{position:absolute;bottom:0;left:0}
+</style>
+<canvas id=c></canvas>
+<p id=msgNode></p>
+<div id=infoNode></div>
+<script>
+var c = document.getElementById('c');
+var width = c.width = document.documentElement.clientWidth;
+var height = c.height = document.documentElement.clientHeight;
+var ctx = c.getContext('2d');
+ctx.fillStyle = 'black';
+ctx.fillRect(0, 0, width, height);
+
+// g is a Ground.
+var genRooms = function(g) {
+  g.a = new Uint8Array(g.w * g.h);
+  var nr = (g.w >> 3) * (g.h >> 3); // number of rooms.
+  var rooms = [g.room(g.prot.x, g.prot.y, 4, 4)];
+  for (var i = 0; i < nr - 1; i++) { 
+    rooms.push(g.randRoom());
+  }
+  var allRooms = rooms.slice();
+  var r = rooms[0];
+  for (;rooms.length > 0;) {
+    var ci = r.closest(rooms); // closest room index.
+    var closest = rooms[ci];
+    rooms.splice(ci, 1);
+    g.passage(r.cx, r.cy, closest.cx, closest.cy);
+    r = closest;
+  }
+  for (var i = 0; i < nr/4; i++) g.corridor();
+  return allRooms;
+};
+
+// g is a Ground.
+var paint = function(ctx, g) {
+  g.paint(ctx);
+};
+
+var Ground = function() {
+  this.bs = 8; // block side.
+  this.w = (width / this.bs)>>0; // array width.
+  this.h = (height / this.bs)>>0; // array height.
+  this.tiles = this.w * this.h;
+  this.a = new Uint8Array(this.tiles);
+  this.noise = new Uint8Array(this.tiles);
+  this.genNoise();
+
+  this.entities = new Array(this.tiles);
+  for (var i = 0; i < this.tiles; i++) {
+    this.entities[i] = [];
+  }
+  this.prot = new Protagonist(this, 4, 4); // protagonist
+  this.prot.life = 2 * (this.w + this.h);
+  this.prot.color = 'cornflowerblue';
+  this.portal = new Entity(this, 0, 0);
+  this.diggers = [];
+  this.parasites = [];
+  this.level = 1;
+};
+
+Ground.prototype = {
+  idx(x, y) { return x + y * this.w; },
+  pos(i) { return [i % this.w, (i / this.w) >>> 0]; },
+  up(i) { if (i < this.w) { return i; } else { return i - this.w; } },
+  right(i) { if ((i % this.w) === this.w - 1) { return i; } else { return i + 1; } },
+  down(i) { if (i >= this.w * (this.h - 1)) { return i; } else { return i + this.w; } },
+  left(i) { if ((i % this.w) === 0) { return i; } else { return i - 1; } },
+  rect(x, y, w, h, f) {
+    var gw = this.w; // ground width.
+    var gh = this.h; // ground height.
+    var a = this.a;
+    if (x < 0) { x = 0; }
+    if (x >= gw) { x = gw - 1; }
+    if (y < 0) { y = 0; }
+    if (y >= gh) { y = gh - 1; }
+    if (w > gw - x) { w = gw - x; }
+    if (h > gh - h) { h = gh - h; }
+
+    var idx = x + y * gw;
+    for (var j = 0; j < h; j++) {
+      for (var i = 0; i < w; i++) {
+        f(a, idx);
+        idx++;
+      }
+      idx += x + (gw - (x + w));
+    }
+  },
+  // Rectangular border whose top left is at x,y and with width w and height h.
+  // f is called with this.a and the index of the border element as parameters.
+  // The items are added clockwise from the top left.
+  rectBorder(x, y, w, h, f) {
+    var gw = this.w; // ground width.
+    var gh = this.h; // ground height.
+    var a = this.a;
+    if (x < 0) { w += x; x = 0; }
+    if (x >= gw) { x = gw - 1; }
+    if (y < 0) { h += y; y = 0; }
+    if (y >= gh) { y = gh - 1; }
+    if (w > gw - x) { w = gw - x; }
+    if (h > gh - y) { h = gh - y; }
+
+    var idx = x + y * gw;
+    // top
+    for (var i = 1; i < w; i++, idx++) { f(a, idx); }
+    // right
+    for (var i = 1; i < h; i++, idx += gw) { f(a, idx); }
+    // bottom
+    for (var i = 1; i < w; i++, idx--) { f(a, idx); }
+    // left
+    for (var i = 1; i < h; i++, idx -= gw) { f(a, idx); }
+  },
+  // Rectangular border whose top left is at x,y and with width w and height h.
+  // Returns {top:[], right:[], bottom:[], left:[]} with lists of indices, starting with the diagonal.
+  rectSides(x, y, w, h) {
+    var gw = this.w; // ground width.
+    var gh = this.h; // ground height.
+    var a = this.a;
+    if (x < 0) { w += x; x = 0; }
+    if (x >= gw) { x = gw - 1; }
+    if (y < 0) { h += y; y = 0; }
+    if (y >= gh) { y = gh - 1; }
+    if (w > gw - x) { w = gw - x; }
+    if (h > gh - y) { h = gh - y; }
+    var top = [], right = [], bottom = [], left = [];
+
+    var idx = x + y * gw;
+    // top 
+    for (var i = 1; i < w; i++, idx++) { top.push(idx); }
+    // right
+    for (var i = 1; i < h; i++, idx += gw) { right.push(idx); }
+    // bottom
+    for (var i = 1; i < w; i++, idx--) { bottom.push(idx); }
+    // left
+    for (var i = 1; i < h; i++, idx -= gw) { left.push(idx); }
+    return {top:top, right:right, bottom:bottom, left:left};
+  },
+  room(cx, cy, w, h) {
+    var px = cx - (w >> 1);
+    var py = cy - (h >> 1);
+    this.rect(px, py, w, h, function(a, i) {a[i] = 1});
+    return new Room(px, py, w, h, cx, cy);
+  },
+  randRoom() {
+    var cx = (Math.random() * this.w)>>0;
+    var cy = (Math.random() * this.h)>>0;
+    var w = ((Math.random() * 4)>>0) + 2;
+    var h = ((Math.random() * 4)>>0) + 2;
+    return this.room(cx, cy, w, h);
+  },
+  corridor() {
+    var gw = this.w; // ground width.
+    var gh = this.h; // ground height.
+    var a = this.a;
+    var x = (Math.random() * gw)>>0;
+    var y = (Math.random() * gh)>>0;
+    var dir = 0;
+    for (var i = 0; i < 16; i++) {
+      a[x + y * gw] = 1;
+      if (i % 2 === 0) { // don't change twice in a row.
+        var chdir = (Math.random() * 6)>>0;
+        if (chdir == 0) { dir++; }
+        if (chdir == 1) { dir--; }
+        if (dir > 3) { dir = 0; }
+        if (dir < 0) { dir = 3; }
+      }
+      if (dir === 0) { x++; }
+      else if (dir === 1) { y++; }
+      else if (dir === 2) { x--; }
+      else if (dir === 3) { y--; }
+      
+      if (x < 0 || x >= gw || y < 0 || y >= gh) { break; }
+    }
+  },
+  // rx, ry: position relative to x, y.
+  relative(x, y, rx, ry) {
+    var a = this.a, gw = this.w, gh = this.h;
+    if (rx < 0 && x < -rx) { rx = -x; }
+    if (rx > 0 && x + rx > gw) { rx = gw - x; }
+    if (ry < 0 && y < -ry) { ry = -y; }
+    if (ry > 0 && y + ry > gh) { ry = gh - y; }
+    var init = x + y * gw;
+    return init + rx + gw * ry;
+  },
+  horiz(x, y, w, f) {
+    var a = this.a, gw = this.w;
+    if (w < 0 && x < -w) { w = -x; }
+    if (w > 0 && x + w > gw) { w = gw - x; }
+    // put x on the left of the line.
+    if (w < 0) { x += w; w = 1 - w; }
+    var init = x + y * gw;
+    var re = init + w; // right edge.
+    for (var i = init; i < re; i++) { f(a, i); }
+  },
+  vert(x, y, h, f) {
+    var a = this.a;
+    var gw = this.w;
+    var gh = this.h;
+    if (h < 0 && y < -h) { h = -y; }
+    if (h > 0 && y + h > gh) { h = gh - y; }
+    // put y on the top of the line.
+    if (h < 0) { y += h; h = -h; }
+    var init = x + y * gw;
+    var be = init + gw * h; // bottom edge.
+    for (var i = init; i < be; i += gw) { f(a, i); }
+  },
+  passage(x1, y1, x2, y2) {
+    var hf = (Math.random() * 2)>>0 === 0; // horizontal first.
+    if (false) {
+      this.horiz(x1, y1, x2 - x1, function(a, i) {a[i] = 1});
+      this.vert(x2, y1, y2 - y1, function(a, i) {a[i] = 1});
+    } else {
+      this.vert(x1, y1, y2 - y1, function(a, i) {a[i] = 1});
+      this.horiz(x1, y2, x2 - x1, function(a, i) {a[i] = 1});
+    }
+  },
+  genNoise() {
+    var a = this.a, l = a.length;
+    for (var i = 0; i < l; i++) {
+      this.noise[i] = randBlack();
+    }
+  },
+  isWall(pos) {
+    return this.a[pos] === 0;
+  },
+  paint(ctx) {
+    // Rooms
+    var a = this.a, w = this.w, h = this.h, bs = this.bs;
+    var l = a.length;
+    var i = 0;
+    var j = 0;
+    for (var k = 0; k < l; k++) {
+      var b = a[k]; // block.
+      if (b === 1) {
+        var c = 64 + this.noise[k];
+      } else {
+        var c = this.noise[k];
+      }
+      ctx.fillStyle = 'rgb(' + c + ',' + c + ',' + c + ')';
+      ctx.fillRect(i * bs, j * bs, bs, bs);
+      i++;
+      if (i >= w) {
+        i = 0;
+        j++;
+      }
+    }
+    // Visibility
+    var visible = this.vision(this.prot.x, this.prot.y, 5);
+    for (var i = 0; i < visible.length; i++) {this.fillTile(ctx, visible[i], 'rgba(255,255,200,0.1)');}
+    // Portal
+    this.portal.paint(ctx);
+    for (var i = 0; i < this.diggers.length; i++) {
+      this.diggers[i].paint(ctx);
+    }
+    for (var i = 0; i < this.parasites.length; i++) {
+      this.parasites[i].paint(ctx);
+    }
+    // Protagonist
+    if (!this.prot.isDead()) {this.prot.paint(ctx);}
+  },
+  fillTile(ctx, tile, style) {
+    var bs = this.bs;
+    var pos = this.pos(tile);
+    var i = pos[0], j = pos[1];
+    ctx.fillStyle = style || 'red';
+    ctx.fillRect(i * bs, j * bs, bs, bs);
+  },
+  // List of entities at board index `pos`.
+  entitiesAt(pos) {
+    return this.entities[pos];
+  },
+  removeEntity(pos, entity) {
+    var index = this.entities[pos].indexOf(entity);
+    this.entities[pos].splice(index, 1);
+  },
+  addEntity(pos, entity) {
+    this.entities[pos].push(entity);
+  },
+  killEntity(entity) {
+    this.removeEntity(entity.idx(), entity);
+    if (entity instanceof Digger) {
+      this.diggers.splice(this.diggers.indexOf(entity), 1);
+    } else if (entity instanceof Parasite) {
+      this.parasites.splice(this.parasites.indexOf(entity), 1);
+    } else if (entity instanceof Protagonist) {
+      this.checkGameConditions();
+    }
+  },
+  moveEntities() {
+    for (var i = 0; i < this.diggers.length; i++) {
+      this.diggers[i].move();
+    }
+    for (var i = 0; i < this.parasites.length; i++) {
+      this.parasites[i].move();
+    }
+  },
+  levelWelcome() {
+    var msg, timer = 2000;
+    if (this.level === 0) {
+      this.prot.life = Infinity;
+      infoNode.style.display = 'none';
+      msg = 'Is it in the orange square?';
+      timer = 4000;
+    } else if (this.level === 1) {
+      this.prot.life = 2 * (this.w + this.h);
+      infoNode.style.display = 'block';
+      msg = 'Welcome to Level ' + this.level + '.\n' +
+        'Your life is at ' + this.prot.life + '.\n' +
+        'Eat purple diggers to survive.';
+      timer = 10000;
+    } else if (this.level === 2) {
+      msg = 'Level ' + this.level + ' already!\n' +
+        'Your predator, the red parasites,\n' +
+        'await you dearly.';
+      timer = 5000;
+    } else {
+      msg = 'Level ' + this.level;
+    }
+    showMessage(msg, timer);
+  },
+  checkGameConditions() {
+    if (this.prot.x === this.portal.x && this.prot.y === this.portal.y) {
+      this.level++;
+      startLevel();
+    } else if (this.prot.life <= 0) {
+      showMessage('404 Life Not Found', Infinity);
+    } else {
+      for (var i = 0; i < this.entities.length; i++) {
+        var entities = this.entities[i];
+        if (entities.length >= 2) {
+          for (var j = 0; j < entities.length; j++) {
+            for (var k = 0; k < entities.length; k++) {
+              if (j !== k) {
+                entities[j].interact(entities[k]);
+                if (entities[j] === undefined) {break;}
+              }
+            }
+          }
+        }
+      }
+    }
+    showInfoText('life ' + this.prot.life);
+  }
+};
+
+var Room = function(px, py, w, h, cx, cy) {
+  this.px = px;
+  this.py = py;
+  this.w = w;
+  this.h = h;
+  this.cx = cx;
+  this.cy = cy;
+};
+
+Room.prototype = {
+  distance(room) {
+    return rectDistance(room.cx, room.cy, this.cx, this.cy);
+  },
+  closest(rooms) {
+    var l = rooms.length;
+    var ci; // closest room.
+    var cd = 1e10; // closest distance.
+    for (var i = 0; i < l; i++) {
+      var r = rooms[i];
+      var dist = this.distance(r);
+      if (dist < cd && dist !== 0) {
+        cd = dist;
+        ci = i;
+      }
+    }
+    return ci;
+  },
+  farthest(rooms) {
+    var l = rooms.length;
+    var fi; // farthest room.
+    var fd = 0; // farthest distance.
+    for (var i = 0; i < l; i++) {
+      var r = rooms[i];
+      var dist = this.distance(r);
+      if (dist > fd) {
+        fd = dist;
+        fi = i;
+      }
+    }
+    return fi;
+  }
+};
+
+var rectDistance = function(ax, ay, bx, by) {
+  return Math.abs(ay - by) + Math.abs(ax - bx);
+};
+
+var randBlack = function() {
+  return (Math.random() * 32)>>0;
+};
+var randWhite = function() {
+  return 64 + ((Math.random() * 32)>>0);
+};
+
+var Entity = function(g, x, y) {
+  this.g = g;
+  this.x = x;
+  this.y = y;
+  this.life = 1;
+  this.color = 'orange';
+  this.g.addEntity(this.idx(), this);
+};
+Entity.prototype = {
+  placeAt(x, y) {
+    this.g.removeEntity(this.idx(), this);
+    this.x = x; this.y = y;
+    this.g.addEntity(this.idx(), this);
+  },
+  idx() {return this.g.idx(this.x, this.y);},
+  goUp() {
+    var idx = this.idx();
+    var pos = this.g.up(idx);
+    if (!this.g.isWall(this.g.up(idx)) && this.y > 0 && this.life > 0) {
+      this.g.removeEntity(this.idx(), this);
+      this.y--;
+      this.life--;
+      if (!this.isDead()) {this.g.addEntity(pos, this);}
+      return true;
+    }
+    return false;
+  },
+  goRight() {
+    var idx = this.idx();
+    var pos = this.g.right(idx);
+    if (!this.g.isWall(this.g.right(idx)) && this.x < this.g.w - 1 && this.life > 0) {
+      this.g.removeEntity(this.idx(), this);
+      this.x++;
+      this.life--;
+      if (!this.isDead()) {this.g.addEntity(pos, this);}
+      return true;
+    }
+    return false;
+  },
+  goDown() {
+    var idx = this.idx();
+    var pos = this.g.down(idx);
+    if (!this.g.isWall(this.g.down(idx)) && this.y < this.g.h - 1 && this.life > 0) {
+      this.g.removeEntity(this.idx(), this);
+      this.y++;
+      this.life--;
+      if (!this.isDead()) {this.g.addEntity(pos, this);}
+      return true;
+    }
+    return false;
+  },
+  goLeft() {
+    var idx = this.idx();
+    var pos = this.g.left(idx);
+    if (!this.g.isWall(this.g.left(idx)) && this.x > 0 && this.life > 0) {
+      this.g.removeEntity(this.idx(), this);
+      this.x--;
+      this.life--;
+      if (!this.isDead()) {this.g.addEntity(pos, this);}
+      return true;
+    }
+    return false;
+  },
+  go(direction) {
+    if (direction === 0) {return this.goUp();}
+    else if (direction === 1) {return this.goRight();}
+    else if (direction === 2) {return this.goDown();}
+    else {return this.goLeft();}
+  },
+  paint(ctx) {
+    this.g.fillTile(ctx, this.g.idx(this.x, this.y), this.color);
+  },
+  isDead() {return this.life <= 0;},
+  interact(entity) {},
+  move() {},
+  vision() {return this.g.vision(this.x, this.y);},
+  visionEntities(vision) {
+    var entities = [];
+    for (var i = 0; i < vision.length; i++) {
+      entities = entities.concat(this.g.entitiesAt(vision[i]));
+    }
+    return entities;
+  },
+  // List of directions (0 = top, 1 = right, etc.)
+  awayFrom(x, y) {
+    var dx = x - this.x;
+    var dy = y - this.y;
+    if (dx === 0) {
+      if (dy === 0) {return [0, 1, 2, 3];}
+      else if (dy > 0) {return [0];}
+      else {return [2];}
+    } else if (dx > 0) {
+      if (dy === 0) {return [3];}
+      else if (dy > 0) {return [0, 3];}
+      else {return [2, 3];}
+    } else {
+      if (dy === 0) {return [1];}
+      else if (dy > 0) {return [0, 1];}
+      else {return [2, 1];}
+    }
+  },
+  towards(x, y) {
+    var dx = x - this.x;
+    var dy = y - this.y;
+    if (dx === 0) {
+      if (dy === 0) {return [];}
+      else if (dy > 0) {return [2];}
+      else {return [0];}
+    } else if (dx > 0) {
+      if (dy === 0) {return [1];}
+      else if (dy > 0) {return [1, 2];}
+      else {return [0, 1];}
+    } else {
+      if (dy === 0) {return [3];}
+      else if (dy > 0) {return [2, 3];}
+      else {return [0, 3];}
+    }
+  },
+};
+
+var Protagonist = function(g, x, y) {
+  Entity.call(this, g, x, y);
+  this.color = 'cornflowerblue';
+};
+Protagonist.prototype = Object.create(Entity.prototype);
+Protagonist.prototype.constructor = Protagonist;
+Protagonist.prototype.interact = function(entity) {
+  if (entity instanceof Digger) {
+    if (entity.egg <= 0) {
+      entity.life -= 100;
+      if (entity.isDead()) {
+        this.g.killEntity(entity);
+        this.life += 100;
+      }
+    } else {this.g.killEntity(entity);}
+  }
+};
+
+var Digger = function(g, x, y) {
+  Entity.call(this, g, x, y);
+  this.color = 'orchid';
+  this.life = 500;
+  this.direction = (4 * Math.random()) >>> 0;
+  this.egg = 0;
+  this.stomach = 42;
+};
+Digger.prototype = Object.create(Entity.prototype);
+Digger.prototype.constructor = Digger;
+Digger.prototype.interact = function(entity) {
+  if ((entity instanceof Digger) && (entity.egg <= 0) && (this.stomach > 0)) {
+    var idx = this.idx();
+    var diggers = 0;
+    var entities = this.visionEntities(this.vision());
+    for (var i = 0; i < entities.length; i++) {
+      if (entities[i] instanceof Digger) { diggers++; }
+    }
+    if (diggers < 3) {  // Three is a crowd.
+      this.stomach--;
+      var child = new Digger(this.g, this.x, this.y);
+      child.egg = 100;
+      child.color = 'mediumorchid';
+      child.stomach = entity.stomach;
+      this.g.diggers.push(child);
+    }
+  }
+  this.life -= 2;
+};
+Digger.prototype.move = function() {
+  if (this.isDead()) {this.g.killEntity(this);}
+  if (this.egg > 0) {
+    this.egg--;
+    if (this.egg <= 0) {
+      this.color = 'orchid';
+    }
+    return false;
+  }
+  var vision = this.vision();
+  var entities = this.visionEntities(vision);
+  for (var i = 0; i < entities.length; i++) {
+    var entity = entities[i];
+    if (entity instanceof Protagonist) {
+      // Get away from the predator.
+      this.direction = pick(this.awayFrom(entity.x, entity.y));
+      this.go(this.direction);
+      return true;
+    }
+  }
+  var hasMoved = false;
+  if (this.direction === 0) {hasMoved = this.goUp();}
+  else if (this.direction === 1) {hasMoved = this.goRight();}
+  else if (this.direction === 2) {hasMoved = this.goDown();}
+  else if (this.direction === 3) {hasMoved = this.goLeft();}
+  if (!hasMoved) {
+    if (Math.random() < 0.5) {this.direction++;}
+    else {this.direction--;}
+    if (this.direction < 0) {this.direction += 4;}
+    else if (this.direction > 3) {this.direction -= 4;}
+  }
+  return hasMoved;
+};
+// Digging.
+Digger.prototype.walls = function() {
+  // Number of walls around the digger.
+  var walls = 0;
+  var idx = this.idx();
+  if (this.g.isWall(this.g.up(idx))) {walls++;}
+  if (this.g.isWall(this.g.right(idx))) {walls++;}
+  if (this.g.isWall(this.g.down(idx))) {walls++;}
+  if (this.g.isWall(this.g.left(idx))) {walls++;}
+  return walls;
+}
+Digger.prototype.goUp = function() {
+  if (!Entity.prototype.goUp.call(this)) {
+    var up = this.g.up(this.idx());
+    var walls = this.walls();
+    var rand = Math.random();
+    if (this.g.isWall(up) && ((walls > 2 && rand < 0.8) || (walls === 2 && this.life < 5 && rand < 0.01))) {this.g.a[up] = 1;}
+    return false;
+  }
+  return true;
+};
+Digger.prototype.goRight = function() {
+  if (!Entity.prototype.goRight.call(this)) {
+    var right = this.g.right(this.idx());
+    var walls = this.walls();
+    var rand = Math.random();
+    if (this.g.isWall(right) && ((walls > 2 && rand < 0.8) || (walls === 2 && this.life < 5 && rand < 0.01))) {this.g.a[right] = 1;}
+    return false;
+  }
+  return true;
+};
+Digger.prototype.goDown = function() {
+  if (!Entity.prototype.goDown.call(this)) {
+    var down = this.g.down(this.idx());
+    var walls = this.walls();
+    var rand = Math.random();
+    if (this.g.isWall(down) && ((walls > 2 && rand < 0.8) || (walls === 2 && this.life < 5 && rand < 0.01))) {this.g.a[down] = 1;}
+    return false;
+  }
+  return true;
+};
+Digger.prototype.goLeft = function() {
+  if (!Entity.prototype.goLeft.call(this)) {
+    var left = this.g.left(this.idx());
+    var walls = this.walls();
+    var rand = Math.random();
+    if (this.g.isWall(left) && ((walls > 2 && rand < 0.8) || (walls === 2 && this.life < 5 && rand < 0.01))) {this.g.a[left] = 1;}
+    return false;
+  }
+  return true;
+};
+
+var Parasite = function(g, x, y) {
+  Entity.call(this, g, x, y);
+  this.color = 'orangered';
+  this.life = 5 * (this.g.w + this.g.h);
+  this.path = [];
+  this.dx = 0, this.dy = 0, this.maxFollow = 2, this.follow = 0;
+  this.maxSwitchTarget = 4, this.switchTarget = ((Math.random() * this.maxSwitchTarget) >>> 0);
+  this.pickTarget();
+  this.waitTime = 7, this.wakeTime = 7, this.wake = ((Math.random() * this.wakeTime) >>> 0);
+};
+Parasite.prototype = Object.create(Entity.prototype);
+Parasite.prototype.constructor = Parasite;
+Parasite.prototype.interact = function(entity) {
+  if (this.entityIsFood(entity)) {
+    entity.life -= 100;
+    if (entity.isDead()) {
+      this.g.killEntity(entity);
+      this.life += 50;
+    }
+    if (this.isDead()) { this.g.killEntity(this); }
+  }
+};
+Parasite.prototype.entityIsFood = function(entity) {
+  return (entity instanceof Protagonist) || ((entity instanceof Digger) && entity.egg > 0);
+};
+Parasite.prototype.pickTarget = function() {
+  if (this.switchTarget === 0) {
+    this.targetx = this.g.portal.x;
+    this.targety = this.g.portal.y;
+  } else if (this.switchTarget === 2) {
+    this.targetx = ((Math.random() * this.g.w) >>> 0);
+    this.targety = ((Math.random() * this.g.h) >>> 0);
+  } else {
+    this.targetx = this.g.prot.x;
+    this.targety = this.g.prot.y;
+  }
+  this.switchTarget++;
+  this.switchTarget %= this.maxSwitchTarget;
+};
+Parasite.prototype.move = function() {
+  var self = this;
+  if (this.isDead()) {this.g.killEntity(this);}
+
+  var vision = this.vision();
+  var entities = this.visionEntities(vision);
+  for (var i = 0; i < entities.length; i++) {
+    var entity = entities[i];
+    if (this.entityIsFood(entity)) {
+      // Get to our prey.
+      this.targetx = entity.x; this.targety = entity.y;
+      this.dx = entity.x - this.x; this.dy = entity.y - this.y;
+      this.follow = this.maxFollow;
+      this.path = [];
+      this.direction = pick(this.towards(entity.x, entity.y));
+      return this.go(this.direction);
+    }
+  }
+
+  this.wake--;
+  if (this.wake < -this.waitTime) {
+    this.wake = this.wakeTime + ((Math.random() * 4) >>> 0);
+  } else if (this.wake < 0) {
+    return false;
+  }
+  if (this.path.length === 0) {
+    if (this.follow > 0) {
+      this.follow--;
+      this.path = this.g.bestFirstSearch(this.idx(),
+        function heuristic(idx) {
+          var pos = self.g.pos(idx), posx = pos[0], posy = pos[1];
+          var sameDir = (posx - self.x) * self.dx + (posy - self.y) * self.dy;  // scalar product
+          return sameDir;
+        },
+        50);
+      return false;
+
+    } else {
+      this.pickTarget();
+      this.path = this.g.path(this.idx(), this.g.idx(this.targetx, this.targety));
+      return false;
+    }
+  }
+  var success = this.go(this.path.shift());
+  if (!success) {
+    this.path = [];
+  }
+  return success;
+};
+
+var pick = function(array) {
+  return array[(array.length * Math.random()) >>> 0];
+};
+
+
+// AI
+
+// Return the list of tiles you can see, by index.
+Ground.prototype.vision = function(x, y, radius) {
+  radius = radius || 5;
+  var visible = [], border = [], w = 2 * radius + 1, h = w;
+  var gw = this.w, gh = this.h, a = this.a;
+
+  // Method: look at square of increasing radius.
+  // Diagonal tile is lit if a diagonal one is.
+  // Lateral tiles also.
+  // Others are lit if diagonal and lateral are lit.
+  var visibility = new Set();
+  var pos = this.idx(x, y);
+  visibility.add(pos);
+  // ir: inner radius (radius inside the vision radius).
+  for (var ir = 1; ir <= radius; ir++) {
+    var diag = 2 * ir + 1;
+    var circle = this.rectSides(x - ir, y - ir, diag, diag);
+    var sides = [circle.top, circle.right, circle.bottom, circle.left];
+    // si: side index
+    for (var si = 0; si < 4; si++) {
+      var side = sides[si];
+      for (var ci = 0, sideLen = side.length; ci < sideLen; ci++) {
+        var cp = side[ci]; // circle position
+        // If it is a wall, it is not lit.
+        if (a[cp] === 0) {continue}
+        var cpos = this.pos(cp);
+        var px = cpos[0], py = cpos[1];
+        var isDiag = (ci === 0) && (Math.abs(px - x) === Math.abs(py - y));
+        var isTop = py < y, isRight = px > x, isBottom = py > y, isLeft = px < x;
+        // not a diagonal
+        if (!isDiag) {
+          if (si === 0 && isTop) { // top 
+            if (!visibility.has(this.down(cp))) {continue}
+          } else if (si === 1 && isRight) { // right
+            if (!visibility.has(this.left(cp))) {continue}
+          } else if (si === 2 && isBottom) { // bottom
+            if (!visibility.has(this.up(cp))) {continue}
+          } else if (si === 3 && isLeft) { // left
+            if (!visibility.has(this.right(cp))) {continue}
+          }
+        }
+        if (px > x && py < y) { // top right
+          if (!visibility.has(this.left(this.down(cp)))) {continue}
+        } else if (px > x && py > y) { // bottom right
+          if (!visibility.has(this.left(this.up(cp)))) {continue}
+        } else if (px < x && py > y) { // bottom left
+          if (!visibility.has(this.right(this.up(cp)))) {continue}
+        } else if (px < x && py < y) { // top left
+          if (!visibility.has(this.right(this.down(cp)))) {continue}
+        }
+        visibility.add(cp);
+      }
+    }
+  }
+
+  for (var key of visibility) {visible.push(key);}
+  return visible;
+};
+
+// Return a list of all tiles, each with the index of the next tile to go to.
+Ground.prototype.pathsTo = function(idx) {
+  var ntiles = this.tiles;
+  var nexts = new Int32Array(ntiles);
+  var dirs = new Int32Array(ntiles);  // up/right/down/left
+  nexts.fill(-1);
+  dirs.fill(-1);
+  var costs = new Uint32Array(ntiles);
+  var maxCost = Math.pow(2, 32) - 1;
+  costs.fill(maxCost);
+  costs[idx] = 0;
+  var toVisit = new Array(); // Ordered by cost ascending.
+  toVisit.push(idx);
+  while (toVisit.length > 0) {
+    var visiting = toVisit.shift();
+    var neighbors = [
+      this.down(visiting),
+      this.left(visiting),
+      this.up(visiting),
+      this.right(visiting),
+    ];
+    for (var i = 0; i < 4; i++) {
+      var neighbor = neighbors[i];
+      if (this.isWall(neighbor)) {
+        var cost = maxCost;
+      } else {
+        var cost = costs[visiting] + 1;
+      }
+      if (cost < costs[neighbor]) {
+        nexts[neighbor] = visiting;
+        dirs[neighbor] = i;
+        costs[neighbor] = cost;
+        // Insert neighbor, maintaining increasing cost.
+        var j = findCost(toVisit, cost, costs);
+        toVisit.splice(j, 0, neighbor);
+      }
+    }
+  }
+  return {nexts: nexts, dirs: dirs};
+};
+Ground.prototype.path = function(from, to) {
+  var paths = this.pathsTo(to), nexts = paths.nexts, dirs = paths.dirs;
+  if (nexts[from] === -1) { return []; }
+  var path = [];
+  var idx = from;
+  while (idx !== to) {
+    var next = nexts[idx];
+    path.push(dirs[idx]);
+    idx = next;
+  }
+  return path;
+};
+function findCost(toVisit, cost, costs) {
+  var lo = 0, hi = toVisit.length;
+  while (lo !== hi) {
+    var mid = (((hi - lo) / 2)|0) + lo;
+    var midCost = costs[toVisit[mid]];
+    if (cost === midCost) { return mid; }
+    else if (cost < midCost) { hi = mid; }
+    else { lo = mid + 1; }
+  }
+  return lo;
+}
+Ground.prototype.bestFirstSearch = function(from, heuristic, numIter) {
+  var toVisit = [{idx: from, score: 0, dir: undefined}];
+  var visited = new Map();  // maps to direction to previous.
+  var visitedDir = new Map();  // maps to direction to get there.
+  for (var iterations = 0; iterations < numIter && toVisit.length > 0; iterations++) {
+    var visiting = toVisit.shift();
+    var visitingIdx = visiting.idx;
+    visited.set(visitingIdx, visiting.prev);
+    visitedDir.set(visitingIdx, visiting.dir);
+    var neighbors = [
+      this.up(visitingIdx),
+      this.right(visitingIdx),
+      this.down(visitingIdx),
+      this.left(visitingIdx),
+    ];
+    for (var i = 0; i < 4; i++) {
+      var neighbor = neighbors[i];
+      if (!this.isWall(neighbor) && !visited.has(neighbor)) {
+        var score = heuristic(neighbor);
+        // Insert neighbor, maintaining decreasing score.
+        var j = findScore(toVisit, score);
+        toVisit.splice(j, 0, {idx: neighbor, score: score, prev: visitingIdx, dir: i});
+      }
+    }
+  }
+  var path = [];
+  var cur = visitingIdx;
+  while (cur !== from) {
+    path.push(visitedDir.get(cur));
+    cur = visited.get(cur);
+  }
+  path.reverse();
+  return path;
+}
+
+function findScore(list, score) {
+  var lo = 0, hi = list.length;
+  while (lo !== hi) {
+    var mid = (((hi - lo) / 2)|0) + lo;
+    var midScore = list[mid].score;
+    if (score === midScore) { return mid; }
+    else if (score > midScore) { hi = mid; }
+    else { lo = mid + 1; }
+  }
+  return lo;
+}
+
+// Messages
+var message;
+var showMessage = function(msg, time) {
+  if (msg !== message) {
+    message = msg;
+    msgNode.innerHTML = msg.replace(/\n/g, '<br>');
+    setTimeout(hideMessage, time);
+  }
+  msgNode.style.display = 'block';
+};
+var hideMessage = function() {
+  msgNode.style.display = 'none';
+};
+var infoText;
+var showInfoText = function(text) {
+  if (text !== infoText) {
+    infoText = text;
+    infoNode.textContent = text;
+  }
+};
+
+// Input
+
+var kinput = function() {
+  if (keysDown.has(38) || keysDown.has(87)) { // up
+    g.prot.goUp();
+  }
+  if (keysDown.has(39) || keysDown.has(68)) { // right
+    g.prot.goRight();
+  }
+  if (keysDown.has(40) || keysDown.has(83)) { // down
+    g.prot.goDown();
+  }
+  if (keysDown.has(37) || keysDown.has(65)) { // left
+    g.prot.goLeft();
+  }
+  g.checkGameConditions();
+  g.moveEntities();
+  paint(ctx, g);
+};
+var keysDown = new Set();
+var kdown = function(event) { keysDown.add(event.keyCode); };
+var kup = function(event) { keysDown.delete(event.keyCode); };
+
+// Initialization
+var g;
+var keyboardInterval;
+var startLevel = function() {
+  var rooms = genRooms(g);
+  var numRooms = rooms.length
+  var room0 = rooms[0];
+  var lastRoom = rooms[room0.farthest(rooms)];
+  this.g.prot.placeAt(room0.cx, room0.cy);
+  this.g.portal.placeAt(lastRoom.cx, lastRoom.cy);
+  // Reset entities.
+  for (var i = 0; i < g.tiles; i++) {
+    g.entities[i] = [];
+  }
+  g.diggers = [];
+  if (g.level > 0) {
+    var numDiggers = (g.tiles / 1000) >>> 0;
+    for (var i = 1; i < numDiggers && i < numRooms; i++) {
+      g.diggers.push(new Digger(g, rooms[i].cx, rooms[i].cy));
+    }
+  }
+  g.parasites = [];
+  if (g.level > 1) {
+    var numParasites = Math.max(2, (g.tiles / 2000) >>> 0);
+    for (var i = 1; i < numParasites && i < numRooms; i++) {
+      var room = rooms[numRooms - i];
+      g.parasites.push(new Parasite(g, room.cx, room.cy));
+    }
+  }
+  g.levelWelcome();
+}
+var init = function(ctx) {
+  clearInterval(keyboardInterval);
+  removeEventListener('keydown', kdown);
+  removeEventListener('keyup', kup);
+  addEventListener('keydown', kdown);
+  addEventListener('keyup', kup);
+  keyboardInterval = setInterval(kinput, 100);
+
+  g = new Ground();
+  startLevel();
+  paint(ctx, g);
+};
+
+init(ctx);
+</script>
