@@ -956,13 +956,19 @@ var kinput = function() {
   if (keysDown.has(37) || keysDown.has(65)) { // left
     g.prot.goLeft();
   }
-  g.checkGameConditions();
-  g.moveEntities();
-  paint(ctx, g);
+  if (keysDown.has(32)) { // space
+    unpaused = !unpaused;
+  }
+  if (unpaused) {
+    g.checkGameConditions();
+    g.moveEntities();
+    paint(ctx, g);
+  }
 };
 var keysDown = new Set();
 var kdown = function(event) { keysDown.add(event.keyCode); };
 var kup = function(event) { keysDown.delete(event.keyCode); };
+var unpaused = true;
 
 // Initialization
 var g;
