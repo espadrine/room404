@@ -956,9 +956,6 @@ var kinput = function() {
   if (keysDown.has(37) || keysDown.has(65)) { // left
     g.prot.goLeft();
   }
-  if (keysDown.has(32)) { // space
-    unpaused = !unpaused;
-  }
   if (unpaused) {
     g.checkGameConditions();
     g.moveEntities();
@@ -966,8 +963,17 @@ var kinput = function() {
   }
 };
 var keysDown = new Set();
-var kdown = function(event) { keysDown.add(event.keyCode); };
-var kup = function(event) { keysDown.delete(event.keyCode); };
+var kdown = function(event) {
+  if (unpaused) { keysDown.add(event.keyCode); }
+};
+var kup = function(event) {
+  if (event.keyCode === 32) { // space
+    unpaused = !unpaused;
+    if (unpaused) { hideMessage(); }
+    else { showMessage('Paused', Infinity); }
+  }
+  keysDown.delete(event.keyCode);
+};
 var unpaused = true;
 
 // Initialization
