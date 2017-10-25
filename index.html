@@ -329,7 +329,7 @@ Ground.prototype = {
       this.level++;
       startLevel();
     } else if (this.prot.life <= 0) {
-      showMessage('404 Life Not Found', Infinity);
+      showMessage('404 Life Not Found');
     } else {
       for (var i = 0; i < this.entities.length; i++) {
         var entities = this.entities[i];
@@ -922,11 +922,15 @@ function findScore(list, score) {
 
 // Messages
 var message;
+var messageTimeout;
 var showMessage = function(msg, time) {
   if (msg !== message) {
     message = msg;
     msgNode.innerHTML = msg.replace(/\n/g, '<br>');
-    setTimeout(hideMessage, time);
+  }
+  clearTimeout(messageTimeout);
+  if (time !== undefined) {
+    messageTimeout = setTimeout(hideMessage, time);
   }
   msgNode.style.display = 'block';
 };
@@ -970,7 +974,7 @@ var kup = function(event) {
   if (event.keyCode === 32) { // space
     unpaused = !unpaused;
     if (unpaused) { hideMessage(); }
-    else { showMessage('Paused', Infinity); }
+    else { showMessage('Paused'); }
   }
   keysDown.delete(event.keyCode);
 };
