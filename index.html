@@ -322,7 +322,7 @@ Ground.prototype = {
     } else {
       msg = 'Level ' + this.level;
     }
-    showMessage(msg, timer);
+    showMessage(msg, 'till keydown');
   },
   checkGameConditions() {
     if (this.prot.x === this.portal.x && this.prot.y === this.portal.y) {
@@ -928,9 +928,19 @@ var showMessage = function(msg, time) {
     message = msg;
     msgNode.innerHTML = msg.replace(/\n/g, '<br>');
   }
+  if (typeof messageTimeout === 'number') {
+    clearTimeout(messageTimeout);
+  } else if (typeof messageTimeout === 'string') {
+    messageTimeout = undefined;
+  }
   clearTimeout(messageTimeout);
+  messageTillKeydown = false;
   if (time !== undefined) {
-    messageTimeout = setTimeout(hideMessage, time);
+    if (typeof time === 'number') {
+      messageTimeout = setTimeout(hideMessage, time);
+    } else if (typeof time === 'string') {
+      messageTimeout = time;
+    }
   }
   msgNode.style.display = 'block';
 };
@@ -969,6 +979,7 @@ var kinput = function() {
 var keysDown = new Set();
 var kdown = function(event) {
   if (unpaused) { keysDown.add(event.keyCode); }
+  if (messageTimeout === 'till keydown') { hideMessage(); }
 };
 var kup = function(event) {
   if (event.keyCode === 32) { // space
