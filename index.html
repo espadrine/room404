@@ -301,24 +301,21 @@ Ground.prototype = {
     }
   },
   levelWelcome() {
-    var msg, timer = 2000;
+    var msg;
     if (this.level === 0) {
       this.prot.life = Infinity;
       infoNode.style.display = 'none';
       msg = 'Is it in the orange square?';
-      timer = 4000;
     } else if (this.level === 1) {
       this.prot.life = 2 * (this.w + this.h);
       infoNode.style.display = 'block';
       msg = 'Welcome to Level ' + this.level + '.\n' +
         'Your life is at ' + this.prot.life + '.\n' +
         'Eat purple diggers to survive.';
-      timer = 10000;
     } else if (this.level === 2) {
       msg = 'Level ' + this.level + ' already!\n' +
         'Your predator, the red parasites,\n' +
         'await you dearly.';
-      timer = 5000;
     } else {
       msg = 'Level ' + this.level;
     }
@@ -928,12 +925,7 @@ var showMessage = function(msg, time) {
     message = msg;
     msgNode.innerHTML = msg.replace(/\n/g, '<br>');
   }
-  if (typeof messageTimeout === 'number') {
-    clearTimeout(messageTimeout);
-  } else if (typeof messageTimeout === 'string') {
-    messageTimeout = undefined;
-  }
-  clearTimeout(messageTimeout);
+  hideMessage();
   messageTillKeydown = false;
   if (time !== undefined) {
     if (typeof time === 'number') {
@@ -945,6 +937,11 @@ var showMessage = function(msg, time) {
   msgNode.style.display = 'block';
 };
 var hideMessage = function() {
+  if (typeof messageTimeout === 'number') {
+    clearTimeout(messageTimeout);
+  } else if (typeof messageTimeout === 'string') {
+    messageTimeout = undefined;
+  }
   msgNode.style.display = 'none';
 };
 var infoText;
@@ -979,7 +976,7 @@ var kinput = function() {
 var keysDown = new Set();
 var kdown = function(event) {
   if (unpaused) { keysDown.add(event.keyCode); }
-  if (messageTimeout === 'till keydown') { hideMessage(); }
+  if (!event.repeat && messageTimeout === 'till keydown') { hideMessage(); }
 };
 var kup = function(event) {
   if (event.keyCode === 32) { // space
