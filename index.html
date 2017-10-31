@@ -62,16 +62,25 @@ var Ground = function() {
   this.portal = new Entity(this, 0, 0);
   this.diggers = [];
   this.parasites = [];
-  this.level = 1;
+  this.swarmers = [];
+  this.level = 3;
 };
 
 Ground.prototype = {
   idx(x, y) { return x + y * this.w; },
   pos(i) { return [i % this.w, (i / this.w) >>> 0]; },
-  up(i) { if (i < this.w) { return i; } else { return i - this.w; } },
-  right(i) { if ((i % this.w) === this.w - 1) { return i; } else { return i + 1; } },
-  down(i) { if (i >= this.w * (this.h - 1)) { return i; } else { return i + this.w; } },
-  left(i) { if ((i % this.w) === 0) { return i; } else { return i - 1; } },
+  up(i) { if (i < this.w) { return -1; } else { return i - this.w; } },
+  right(i) { if ((i % this.w) === this.w - 1) { return -1; } else { return i + 1; } },
+  down(i) { if (i >= this.w * (this.h - 1)) { return -1; } else { return i + this.w; } },
+  left(i) { if ((i % this.w) === 0) { return -1; } else { return i - 1; } },
+  relPos(pos, dir) {
+    switch(dir) {
+      case 0: return this.up(pos);
+      case 1: return this.right(pos);
+      case 2: return this.down(pos);
+      default: return this.left(pos);
+    }
+  },
   rect(x, y, w, h, f) {
     var gw = this.w; // ground width.
     var gh = this.h; // ground height.
@@ -226,9 +235,14 @@ Ground.prototype = {
       this.noise[i] = randBlack();
     }
   },
-  isWall(pos) {
-    return this.a[pos] === 0;
+  isWall(idx) {
+    return this.a[idx] === 0;
   },
+  isOutside(idx) {
+    var pos = this.pos(idx);
+    return pos[0] < 0 || pos[0] >= this.w || pos[1] < 0 || pos[1] >= this.h;
+  },
+  isBlocked(idx) { return this.isWall(idx) || this.isOutside(idx); },
   paint(ctx) {
     // Rooms
     var a = this.a, w = this.w, h = this.h, bs = this.bs;
@@ -261,6 +275,9 @@ Ground.prototype = {
     for (var i = 0; i < this.parasites.length; i++) {
       this.parasites[i].paint(ctx);
     }
+    for (var i = 0; i < this.swarmers.length; i++) {
+      this.swarmers[i].paint(ctx);
+    }
     // Protagonist
     if (!this.prot.isDead()) {this.prot.paint(ctx);}
   },
@@ -288,6 +305,8 @@ Ground.prototype = {
       this.diggers.splice(this.diggers.indexOf(entity), 1);
     } else if (entity instanceof Parasite) {
       this.parasites.splice(this.parasites.indexOf(entity), 1);
+    } else if (entity instanceof Swarmer) {
+      this.swarmers.splice(this.swarmers.indexOf(entity), 1);
     } else if (entity instanceof Protagonist) {
       this.checkGameConditions();
     }
@@ -299,23 +318,31 @@ Ground.prototype = {
     for (var i = 0; i < this.parasites.length; i++) {
       this.parasites[i].move();
     }
+    for (var i = 0; i < this.swarmers.length; i++) {
+      this.swarmers[i].move();
+    }
   },
   levelWelcome() {
     var msg;
     if (this.level === 0) {
       this.prot.life = Infinity;
       infoNode.style.display = 'none';
-      msg = 'Is it in the orange square?';
+      msg = 'Level ' + this.level + ': Search.\n' +
+        'Reach the orange square.\n' +
+        'WASD/arrows to move, Space to pause.';
     } else if (this.level === 1) {
       this.prot.life = 2 * (this.w + this.h);
       infoNode.style.display = 'block';
-      msg = 'Welcome to Level ' + this.level + '.\n' +
+      msg = 'Level ' + this.level + ': Life.\n' +
         'Your life is at ' + this.prot.life + '.\n' +
         'Eat purple diggers to survive.';
     } else if (this.level === 2) {
-      msg = 'Level ' + this.level + ' already!\n' +
+      msg = 'Level ' + this.level + ': Survival.\n' +
         'Your predator, the red parasites,\n' +
-        'await you dearly.';
+        'awaits you dearly.';
+    } else if (this.level === 3) {
+      msg = 'Level ' + this.level + ': Society.\n' +
+        'Don’t hurt swarmers and you’ll be fine.';
     } else {
       msg = 'Level ' + this.level;
     }
@@ -421,6 +448,7 @@ Entity.prototype = {
     if (!this.g.isWall(this.g.up(idx)) && this.y > 0 && this.life > 0) {
       this.g.removeEntity(this.idx(), this);
       this.y--;
+      if (this.y < 0) {y = this.g.h;}
       this.life--;
       if (!this.isDead()) {this.g.addEntity(pos, this);}
       return true;
@@ -741,6 +769,103 @@ Parasite.prototype.move = function() {
   return success;
 };
 
+var SwarmerScent;
+var Swarmer = function(g, x, y) {
+  Entity.call(this, g, x, y);
+  this.life = 500;
+  this.hugWall = Math.floor(Math.random() * 2); // 0=left, 1=right
+  this.wallDir = Math.floor(Math.random() * 4); // Where the wall should be.
+};
+Swarmer.prototype = Object.create(Entity.prototype);
+Swarmer.prototype.constructor = Swarmer;
+Swarmer.prototype.rotateDir = function(dir, wiseness) {
+  // wiseness: 1 is clockwise, -1 is counterclockwise.
+  var newDir = dir + wiseness;
+  if (newDir < 0) { newDir = 3; }
+  else if (newDir > 3) { newDir = 0; }
+  return newDir;
+};
+Swarmer.prototype.move = function() {
+  if (this.isDead()) {this.g.killEntity(this);}
+  var idx = this.idx();
+  var wallPos = this.g.relPos(idx, this.wallDir);
+  var prevWallPos = this.g.relPos(wallPos, this.rotateDir(this.wallDir, -1));
+
+  var success = false;
+  if (this.g.isBlocked(wallPos)) {
+    var dir = this.rotateDir(this.wallDir, 1);
+    success = this.go(dir);
+    if (!success) {
+      this.wallDir = this.rotateDir(this.wallDir, 1);
+    }
+  } else if (this.g.isBlocked(prevWallPos)) {
+    success = this.go(this.wallDir);
+    this.wallDir = this.rotateDir(this.wallDir, -1);
+  } else {
+    success = this.go(this.wallDir);
+  }
+  return success;
+};
+
+var SwarmerLarva = function(g, x, y) {
+  Swarmer.call(this, g, x, y);
+  this.color = '#9c5';
+  this.growth = 0;
+  this.wait = 0;
+  this.infected = false;
+}
+SwarmerLarva.prototype = Object.create(Swarmer.prototype);
+SwarmerLarva.prototype.constructor = SwarmerLarva;
+SwarmerLarva.prototype.move = function() {
+  this.growth++;
+  if (this.growth > 200) {
+    var caste = Math.random();
+    var Role = caste < 0.05 ? SwarmerQueen :
+      caste < 0.25 ? SwarmerSoldier : SwarmerWorker;
+    var child = new Role(this.g, this.x, this.y);
+    this.g.swarmers.push(child);
+    this.life = 0;
+  }
+  this.wait++;
+  if (this.wait > 1) {
+    Swarmer.prototype.move.call(this);
+    this.wait = 0;
+  }
+};
+
+var SwarmerQueen = function(g, x, y) {
+  Swarmer.call(this, g, x, y);
+  this.color = '#990';
+  this.gestation = this.resetGestation();
+}
+SwarmerQueen.prototype = Object.create(Swarmer.prototype);
+SwarmerQueen.prototype.constructor = SwarmerQueen;
+SwarmerQueen.prototype.resetGestation = function() {
+  return 50 + (Math.random() * 50)|0;
+};
+SwarmerQueen.prototype.move = function() {
+  this.gestation--;
+  if (this.gestation < 0) {
+    this.gestation = this.resetGestation();
+    var child = new SwarmerLarva(this.g, this.x, this.y);
+    this.g.swarmers.push(child);
+  }
+};
+
+var SwarmerSoldier = function(g, x, y) {
+  Swarmer.call(this, g, x, y);
+  this.color = '#ba6';
+}
+SwarmerSoldier.prototype = Object.create(Swarmer.prototype);
+SwarmerSoldier.prototype.constructor = SwarmerSoldier;
+
+var SwarmerWorker = function(g, x, y) {
+  Swarmer.call(this, g, x, y);
+  this.color = '#993';
+}
+SwarmerWorker.prototype = Object.create(Swarmer.prototype);
+SwarmerWorker.prototype.constructor = SwarmerWorker;
+
 var pick = function(array) {
   return array[(array.length * Math.random()) >>> 0];
 };
@@ -1016,6 +1141,10 @@ var startLevel = function() {
       var room = rooms[numRooms - i];
       g.parasites.push(new Parasite(g, room.cx, room.cy));
     }
+  }
+  if (g.level > 2) {
+    var queenRoom = rooms[Math.floor(Math.random() * numRooms)];
+    g.swarmers.push(new SwarmerQueen(g, room.cx, room.cy));
   }
   g.levelWelcome();
 }
