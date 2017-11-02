@@ -700,10 +700,15 @@ Parasite.prototype.interact = function(entity) {
       this.life += 50;
     }
     if (this.isDead()) { this.g.killEntity(this); }
+  } else if (this.entityIsInfectable(entity)) {
+    entity.infect();
   }
 };
 Parasite.prototype.entityIsFood = function(entity) {
   return (entity instanceof Protagonist) || ((entity instanceof Digger) && entity.egg > 0);
+};
+Parasite.prototype.entityIsInfectable = function(entity) {
+  return (entity instanceof SwarmerLarva) && !entity.infected;
 };
 Parasite.prototype.pickTarget = function() {
   if (this.switchTarget === 0) {
@@ -727,7 +732,7 @@ Parasite.prototype.move = function() {
   var entities = this.visionEntities(vision);
   for (var i = 0; i < entities.length; i++) {
     var entity = entities[i];
-    if (this.entityIsFood(entity)) {
+    if (this.entityIsFood(entity) || this.entityIsInfectable(entity)) {
       // Get to our prey.
       this.targetx = entity.x; this.targety = entity.y;
       this.dx = entity.x - this.x; this.dy = entity.y - this.y;
@@ -809,7 +814,7 @@ Swarmer.prototype.move = function() {
 
 var SwarmerLarva = function(g, x, y) {
   Swarmer.call(this, g, x, y);
-  this.color = '#9c5';
+  this.color = '#aa7';
   this.growth = 0;
   this.wait = 0;
   this.infected = false;
@@ -817,11 +822,16 @@ var SwarmerLarva = function(g, x, y) {
 SwarmerLarva.prototype = Object.create(Swarmer.prototype);
 SwarmerLarva.prototype.constructor = SwarmerLarva;
 SwarmerLarva.prototype.move = function() {
+  if (this.isDead()) {this.g.killEntity(this);}
   this.growth++;
   if (this.growth > 200) {
-    var caste = Math.random();
-    var Role = caste < 0.05 ? SwarmerQueen :
-      caste < 0.25 ? SwarmerSoldier : SwarmerWorker;
+    if (this.infected) {
+      var Role = Parasite;
+    } else {
+      var caste = Math.random();
+      var Role = caste < 0.05 ? SwarmerQueen :
+        caste < 0.25 ? SwarmerSoldier : SwarmerWorker;
+    }
     var child = new Role(this.g, this.x, this.y);
     this.g.swarmers.push(child);
     this.life = 0;
@@ -832,10 +842,14 @@ SwarmerLarva.prototype.move = function() {
     this.wait = 0;
   }
 };
+SwarmerLarva.prototype.infect = function() {
+  this.infected = true;
+  this.color = '#ca7';
+};
 
 var SwarmerQueen = function(g, x, y) {
   Swarmer.call(this, g, x, y);
-  this.color = '#990';
+  this.color = '#9c5';
   this.gestation = this.resetGestation();
 }
 SwarmerQueen.prototype = Object.create(Swarmer.prototype);
@@ -844,11 +858,13 @@ SwarmerQueen.prototype.resetGestation = function() {
   return 50 + (Math.random() * 50)|0;
 };
 SwarmerQueen.prototype.move = function() {
+  if (this.isDead()) {this.g.killEntity(this);}
   this.gestation--;
   if (this.gestation < 0) {
     this.gestation = this.resetGestation();
     var child = new SwarmerLarva(this.g, this.x, this.y);
     this.g.swarmers.push(child);
+    this.life--;
   }
 };
 
