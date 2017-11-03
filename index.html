@@ -707,6 +707,9 @@ Parasite.prototype.interact = function(entity) {
 Parasite.prototype.entityIsFood = function(entity) {
   return (entity instanceof Protagonist) || ((entity instanceof Digger) && entity.egg > 0);
 };
+Parasite.prototype.entityIsHarmful = function(entity) {
+  return (entity instanceof SwarmerQueen || entity instanceof SwarmerSoldier);
+}
 Parasite.prototype.entityIsInfectable = function(entity) {
   return (entity instanceof SwarmerLarva) && !entity.infected;
 };
@@ -740,6 +743,8 @@ Parasite.prototype.move = function() {
       this.path = [];
       this.direction = pick(this.towards(entity.x, entity.y));
       return this.go(this.direction);
+    } else if (this.entityIsHarmful(entity)) {
+      return this.go(pick(this.awayFrom(entity.x, entity.y)));
     }
   }
 
@@ -790,6 +795,17 @@ Swarmer.prototype.rotateDir = function(dir, wiseness) {
   else if (newDir > 3) { newDir = 0; }
   return newDir;
 };
+Swarmer.prototype.isNuisance = function(entity) {
+  return !((entity instanceof Swarmer) || (entity instanceof Digger));
+};
+Swarmer.prototype.interact = function(entity) {
+  if (this.isNuisance(entity)) {
+    entity.life -= 10;
+    if (entity.isDead()) {
+      this.g.killEntity(entity);
+    }
+  }
+};
 Swarmer.prototype.move = function() {
   if (this.isDead()) {this.g.killEntity(this);}
   var idx = this.idx();
@@ -816,6 +832,7 @@ var SwarmerLarva = function(g, x, y) {
   Swarmer.call(this, g, x, y);
   this.color = '#aa7';
   this.growth = 0;
+  this.eclosion = 100 + ((Math.random() * 400)|0);
   this.wait = 0;
   this.infected = false;
 }
@@ -824,16 +841,16 @@ SwarmerLarva.prototype.constructor = SwarmerLarva;
 SwarmerLarva.prototype.move = function() {
   if (this.isDead()) {this.g.killEntity(this);}
   this.growth++;
-  if (this.growth > 200) {
+  if (this.growth > this.eclosion) {
     if (this.infected) {
-      var Role = Parasite;
+      var child = new Parasite(this.g, this.x, this.y);
+      this.g.parasites.push(child);
     } else {
       var caste = Math.random();
-      var Role = caste < 0.05 ? SwarmerQueen :
-        caste < 0.25 ? SwarmerSoldier : SwarmerWorker;
+      var Role = caste < 0.05 ? SwarmerQueen : SwarmerSoldier;
+      var child = new Role(this.g, this.x, this.y);
+      this.g.swarmers.push(child);
     }
-    var child = new Role(this.g, this.x, this.y);
-    this.g.swarmers.push(child);
     this.life = 0;
   }
   this.wait++;
@@ -845,11 +862,13 @@ SwarmerLarva.prototype.move = function() {
 SwarmerLarva.prototype.infect = function() {
   this.infected = true;
   this.color = '#ca7';
+  this.growth = 0;
 };
 
 var SwarmerQueen = function(g, x, y) {
   Swarmer.call(this, g, x, y);
   this.color = '#9c5';
+  this.life = 200;
   this.gestation = this.resetGestation();
 }
 SwarmerQueen.prototype = Object.create(Swarmer.prototype);
@@ -859,12 +878,31 @@ SwarmerQueen.prototype.resetGestation = function() {
 };
 SwarmerQueen.prototype.move = function() {
   if (this.isDead()) {this.g.killEntity(this);}
+
+  var vision = this.vision();
+  var entities = this.visionEntities(vision);
+  for (var i = 0; i < entities.length; i++) {
+    var entity = entities[i];
+    if (this.isNuisance(entity)) {
+      // Go threaten the nuisance.
+      return this.go(pick(this.towards(entity.x, entity.y)));
+    }
+  }
+
   this.gestation--;
   if (this.gestation < 0) {
     this.gestation = this.resetGestation();
     var child = new SwarmerLarva(this.g, this.x, this.y);
     this.g.swarmers.push(child);
     this.life--;
+  }
+};
+SwarmerQueen.prototype.interact = function(entity) {
+  if (this.isNuisance(entity)) {
+    entity.life -= 50;
+    if (entity.isDead()) {
+      this.g.killEntity(entity);
+    }
   }
 };
 
@@ -874,13 +912,19 @@ var SwarmerSoldier = function(g, x, y) {
 }
 SwarmerSoldier.prototype = Object.create(Swarmer.prototype);
 SwarmerSoldier.prototype.constructor = SwarmerSoldier;
-
-var SwarmerWorker = function(g, x, y) {
-  Swarmer.call(this, g, x, y);
-  this.color = '#993';
-}
-SwarmerWorker.prototype = Object.create(Swarmer.prototype);
-SwarmerWorker.prototype.constructor = SwarmerWorker;
+SwarmerSoldier.prototype.interact = function(entity) {
+  if (this.isNuisance(entity)) {
+    if (entity instanceof Parasite) {
+      entity.life = 0;
+    } else {
+      entity.life -= 50;
+    }
+    if (entity.isDead()) {
+      this.g.killEntity(entity);
+      this.life = 0;
+    }
+  }
+};
 
 var pick = function(array) {
   return array[(array.length * Math.random()) >>> 0];
@@ -1158,6 +1202,7 @@ var startLevel = function() {
       g.parasites.push(new Parasite(g, room.cx, room.cy));
     }
   }
+  g.swarmers = [];
   if (g.level > 2) {
     var queenRoom = rooms[Math.floor(Math.random() * numRooms)];
     g.swarmers.push(new SwarmerQueen(g, room.cx, room.cy));
