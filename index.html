@@ -594,9 +594,10 @@ Digger.prototype.interact = function(entity) {
     }
   }
   this.life -= 2;
+  if (this.isDead()) {this.g.killEntity(this);}
 };
 Digger.prototype.move = function() {
-  if (this.isDead()) {this.g.killEntity(this);}
+  if (this.isDead()) {this.g.killEntity(this); return;}
   if (this.egg > 0) {
     this.egg--;
     if (this.egg <= 0) {
@@ -729,7 +730,7 @@ Parasite.prototype.pickTarget = function() {
 };
 Parasite.prototype.move = function() {
   var self = this;
-  if (this.isDead()) {this.g.killEntity(this);}
+  if (this.isDead()) {this.g.killEntity(this); return;}
 
   var vision = this.vision();
   var entities = this.visionEntities(vision);
@@ -807,7 +808,7 @@ Swarmer.prototype.interact = function(entity) {
   }
 };
 Swarmer.prototype.move = function() {
-  if (this.isDead()) {this.g.killEntity(this);}
+  if (this.isDead()) {this.g.killEntity(this); return;}
   var idx = this.idx();
   var wallPos = this.g.relPos(idx, this.wallDir);
   var prevWallPos = this.g.relPos(wallPos, this.rotateDir(this.wallDir, -1));
@@ -839,7 +840,7 @@ var SwarmerLarva = function(g, x, y) {
 SwarmerLarva.prototype = Object.create(Swarmer.prototype);
 SwarmerLarva.prototype.constructor = SwarmerLarva;
 SwarmerLarva.prototype.move = function() {
-  if (this.isDead()) {this.g.killEntity(this);}
+  if (this.isDead()) {this.g.killEntity(this); return;}
   this.growth++;
   if (this.growth > this.eclosion) {
     if (this.infected) {
@@ -851,7 +852,7 @@ SwarmerLarva.prototype.move = function() {
       var child = new Role(this.g, this.x, this.y);
       this.g.swarmers.push(child);
     }
-    this.life = 0;
+    this.g.killEntity(this);
   }
   this.wait++;
   if (this.wait > 1) {
@@ -877,7 +878,7 @@ SwarmerQueen.prototype.resetGestation = function() {
   return 50 + (Math.random() * 50)|0;
 };
 SwarmerQueen.prototype.move = function() {
-  if (this.isDead()) {this.g.killEntity(this);}
+  if (this.isDead()) {this.g.killEntity(this); return;}
 
   var vision = this.vision();
   var entities = this.visionEntities(vision);
@@ -895,6 +896,7 @@ SwarmerQueen.prototype.move = function() {
     var child = new SwarmerLarva(this.g, this.x, this.y);
     this.g.swarmers.push(child);
     this.life--;
+    if (this.isDead()) {this.g.killEntity(this);}
   }
 };
 SwarmerQueen.prototype.interact = function(entity) {
@@ -921,7 +923,7 @@ SwarmerSoldier.prototype.interact = function(entity) {
     }
     if (entity.isDead()) {
       this.g.killEntity(entity);
-      this.life = 0;
+      this.g.killEntity(this);
     }
   }
 };
