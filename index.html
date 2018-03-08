@@ -784,6 +784,7 @@ var SwarmerScent;
 var Swarmer = function(g, x, y) {
   Entity.call(this, g, x, y);
   this.life = 500;
+  this.queen = this;
   this.hugWall = Math.floor(Math.random() * 2); // 0=left, 1=right
   this.wallDir = Math.floor(Math.random() * 4); // Where the wall should be.
 };
@@ -797,7 +798,8 @@ Swarmer.prototype.rotateDir = function(dir, wiseness) {
   return newDir;
 };
 Swarmer.prototype.isNuisance = function(entity) {
-  return !((entity instanceof Swarmer) || (entity instanceof Digger));
+  return !(((entity instanceof Swarmer) && (entity.queen === this.queen)) ||
+    (entity instanceof Digger));
 };
 Swarmer.prototype.interact = function(entity) {
   if (this.isNuisance(entity)) {
@@ -850,6 +852,7 @@ SwarmerLarva.prototype.move = function() {
       var caste = Math.random();
       var Role = caste < 0.05 ? SwarmerQueen : SwarmerSoldier;
       var child = new Role(this.g, this.x, this.y);
+      child.queen = this.queen;
       this.g.swarmers.push(child);
     }
     this.g.killEntity(this);
@@ -869,7 +872,7 @@ SwarmerLarva.prototype.infect = function() {
 var SwarmerQueen = function(g, x, y) {
   Swarmer.call(this, g, x, y);
   this.color = '#9c5';
-  this.life = 200;
+  this.life = 1000;
   this.gestation = this.resetGestation();
 }
 SwarmerQueen.prototype = Object.create(Swarmer.prototype);
@@ -894,6 +897,7 @@ SwarmerQueen.prototype.move = function() {
   if (this.gestation < 0) {
     this.gestation = this.resetGestation();
     var child = new SwarmerLarva(this.g, this.x, this.y);
+    child.queen = this;
     this.g.swarmers.push(child);
     this.life--;
     if (this.isDead()) {this.g.killEntity(this);}
