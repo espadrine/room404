@@ -299,6 +299,20 @@ Ground.prototype = {
   addEntity(pos, entity) {
     this.entities[pos].push(entity);
   },
+  checkGhosts() {
+    for (var i = 0; i < this.entities.length; i++) {
+      for (var j = 0; j < this.entities[i].length; j++) {
+        var entity = this.entities[i][j];
+        if (!this.diggers.includes(entity)
+            && !this.parasites.includes(entity)
+            && !this.swarmers.includes(entity)
+            && entity !== this.prot
+            && entity !== this.portal) {
+          debugger
+        }
+      }
+    }
+  },
   killEntity(entity) {
     this.removeEntity(entity.idx(), entity);
     if (entity instanceof Digger) {
@@ -310,6 +324,7 @@ Ground.prototype = {
     } else if (entity instanceof Protagonist) {
       this.checkGameConditions();
     }
+    //this.checkGhosts();
   },
   moveEntities() {
     for (var i = 0; i < this.diggers.length; i++) {
@@ -594,7 +609,7 @@ Digger.prototype.interact = function(entity) {
     }
   }
   this.life -= 2;
-  if (this.isDead()) {this.g.killEntity(this);}
+  if (this.isDead()) {this.g.killEntity(this); return;}
 };
 Digger.prototype.move = function() {
   if (this.isDead()) {this.g.killEntity(this); return;}
@@ -700,7 +715,7 @@ Parasite.prototype.interact = function(entity) {
       this.g.killEntity(entity);
       this.life += 50;
     }
-    if (this.isDead()) { this.g.killEntity(this); }
+    if (this.isDead()) {this.g.killEntity(this); return;}
   } else if (this.entityIsInfectable(entity)) {
     entity.infect();
   }
@@ -858,6 +873,7 @@ SwarmerLarva.prototype.move = function() {
       this.g.swarmers.push(child);
     }
     this.g.killEntity(this);
+    return;
   }
   this.wait++;
   if (this.wait > 1) {
@@ -902,12 +918,12 @@ SwarmerQueen.prototype.move = function() {
     this.gestationCount++;
     var child = new SwarmerLarva(this.g, this.x, this.y);
     child.queen = this;
-    child.role = (this.gestationCount % 20 === 0)? SwarmerQueen: SwarmerSoldier;
+    child.role = (this.gestationCount % 16 === 0)? SwarmerQueen: SwarmerSoldier;
     this.g.swarmers.push(child);
     this.gestationBase++;
     this.gestation = this.resetGestation();
     this.life--;
-    if (this.isDead()) {this.g.killEntity(this);}
+    if (this.isDead()) {this.g.killEntity(this); return}
   }
 };
 SwarmerQueen.prototype.interact = function(entity) {
@@ -935,6 +951,7 @@ SwarmerSoldier.prototype.interact = function(entity) {
     if (entity.isDead()) {
       this.g.killEntity(entity);
       this.g.killEntity(this);
+      return;
     }
   }
 };
