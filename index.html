@@ -1186,6 +1186,14 @@ var kinput = function() {
   if (keysDown.has(37) || keysDown.has(65)) { // left
     g.prot.goLeft();
   }
+  if (keysDown.has(75)) { // K
+    g.level--;
+    startLevel();
+  }
+  if (keysDown.has(76)) { // L
+    g.level++;
+    startLevel();
+  }
   if (unpaused) {
     g.checkGameConditions();
     g.moveEntities();
@@ -1242,7 +1250,7 @@ var startLevel = function() {
     g.swarmers.push(new SwarmerQueen(g, room.cx, room.cy));
   }
   g.levelWelcome();
-}
+};
 var init = function(ctx) {
   clearInterval(keyboardInterval);
   removeEventListener('keydown', kdown);
