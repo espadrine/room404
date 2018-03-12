@@ -814,8 +814,7 @@ Swarmer.prototype.rotateDir = function(dir, wiseness) {
   return newDir;
 };
 Swarmer.prototype.isNuisance = function(entity) {
-  return !(((entity instanceof Swarmer) && (entity.queen === this.queen)) ||
-    (entity instanceof Digger));
+  return !((entity instanceof Swarmer) || (entity instanceof Digger));
 };
 Swarmer.prototype.interact = function(entity) {
   if (this.isNuisance(entity)) {
@@ -833,6 +832,9 @@ Swarmer.prototype.move = function() {
 
   var success = false;
   if (this.g.isBlocked(wallPos)) {
+    if ((this instanceof SwarmerLarva) && Math.random() < 0.05) {
+      this.wallDir = Math.floor(Math.random() * 4);
+    }
     var dir = this.rotateDir(this.wallDir, 1);
     success = this.go(dir);
     if (!success) {
@@ -851,7 +853,7 @@ var SwarmerLarva = function(g, x, y) {
   Swarmer.call(this, g, x, y);
   this.color = '#aa7';
   this.growth = 0;
-  this.eclosion = 100 + ((Math.random() * 400)|0);
+  this.eclosion = 100 + ((Math.random() * (this.life - 100))|0);
   this.wait = 0;
   this.infected = false;
 }
@@ -891,7 +893,7 @@ var SwarmerQueen = function(g, x, y) {
   Swarmer.call(this, g, x, y);
   this.color = '#9c5';
   this.life = 1000;
-  this.gestationBase = 40;
+  this.gestationBase = 20;
   this.gestation = this.resetGestation();
   this.gestationCount = 0;
 }
@@ -919,6 +921,7 @@ SwarmerQueen.prototype.move = function() {
     var child = new SwarmerLarva(this.g, this.x, this.y);
     child.queen = this;
     child.role = (this.gestationCount % 16 === 0)? SwarmerQueen: SwarmerSoldier;
+    if (child.role === SwarmerQueen) {child.life *= 2; child.eclosion *= 2;}
     this.g.swarmers.push(child);
     this.gestationBase++;
     this.gestation = this.resetGestation();
@@ -942,7 +945,8 @@ var SwarmerSoldier = function(g, x, y) {
 SwarmerSoldier.prototype = Object.create(Swarmer.prototype);
 SwarmerSoldier.prototype.constructor = SwarmerSoldier;
 SwarmerSoldier.prototype.interact = function(entity) {
-  if (this.isNuisance(entity)) {
+  if (this.isNuisance(entity)
+      || (entity instanceof Swarmer) && entity.queen !== this.queen) {
     if (entity instanceof Parasite) {
       entity.life = 0;
     } else {
