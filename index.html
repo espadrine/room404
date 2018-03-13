@@ -587,7 +587,8 @@ var Digger = function(g, x, y) {
   this.life = 500;
   this.direction = (4 * Math.random()) >>> 0;
   this.egg = 0;
-  this.stomach = 42;
+  this.fullStomach = 42;
+  this.stomach = this.fullStomach;
 };
 Digger.prototype = Object.create(Entity.prototype);
 Digger.prototype.constructor = Digger;
@@ -606,6 +607,12 @@ Digger.prototype.interact = function(entity) {
       child.color = 'mediumorchid';
       child.stomach = entity.stomach;
       this.g.diggers.push(child);
+    }
+  } else if (entity instanceof SwarmerLarva) {
+    entity.life -= 50;
+    this.stomach = this.fullStomach;
+    if (entity.isDead()) {
+      this.g.killEntity(entity);
     }
   }
   this.life -= 2;
