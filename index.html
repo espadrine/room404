@@ -58,7 +58,6 @@ var Ground = function() {
   }
   this.prot = new Protagonist(this, 4, 4); // protagonist
   this.prot.life = 2 * (this.w + this.h);
-  this.prot.color = 'cornflowerblue';
   this.portal = new Entity(this, 0, 0);
   this.diggers = [];
   this.parasites = [];
@@ -351,7 +350,7 @@ var Entity = function(g, x, y) {
   this.x = x;
   this.y = y;
   this.life = 1;
-  this.color = 'orange';
+  this.color = [255, 165, 0, 255];
   this.g.addEntity(this.idx(), this);
 };
 Entity.prototype = {
@@ -466,7 +465,7 @@ Entity.prototype = {
 
 var Protagonist = function(g, x, y) {
   Entity.call(this, g, x, y);
-  this.color = 'cornflowerblue';
+  this.color = [100, 149, 237, 255];
 };
 Protagonist.prototype = Object.create(Entity.prototype);
 Protagonist.prototype.constructor = Protagonist;
@@ -484,7 +483,7 @@ Protagonist.prototype.interact = function(entity) {
 
 var Digger = function(g, x, y) {
   Entity.call(this, g, x, y);
-  this.color = 'orchid';
+  this.color = [218, 112, 214, 255];
   this.life = 500;
   this.direction = (4 * Math.random()) >>> 0;
   this.egg = 0;
@@ -505,7 +504,7 @@ Digger.prototype.interact = function(entity) {
       this.stomach--;
       var child = new Digger(this.g, this.x, this.y);
       child.egg = 100;
-      child.color = 'mediumorchid';
+      child.color = [186, 85, 211, 255];
       child.stomach = entity.stomach;
       this.g.diggers.push(child);
     }
@@ -524,7 +523,7 @@ Digger.prototype.move = function() {
   if (this.egg > 0) {
     this.egg--;
     if (this.egg <= 0) {
-      this.color = 'orchid';
+      this.color = [218, 112, 214, 255];
     }
     return false;
   }
@@ -606,7 +605,7 @@ Digger.prototype.goLeft = function() {
 
 var Parasite = function(g, x, y) {
   Entity.call(this, g, x, y);
-  this.color = 'orangered';
+  this.color = [255, 63, 0, 255];
   this.life = 5 * (this.g.w + this.g.h);
   this.path = [];
   this.dx = 0, this.dy = 0, this.maxFollow = 2, this.follow = 0;
@@ -759,7 +758,7 @@ Swarmer.prototype.move = function() {
 
 var SwarmerLarva = function(g, x, y) {
   Swarmer.call(this, g, x, y);
-  this.color = '#aa7';
+  this.color = [170, 170, 119, 255];
   this.growth = 0;
   this.eclosion = 100 + ((Math.random() * (this.life - 100))|0);
   this.wait = 0;
@@ -793,13 +792,13 @@ SwarmerLarva.prototype.move = function() {
 };
 SwarmerLarva.prototype.infect = function() {
   this.infected = true;
-  this.color = '#ca7';
+  this.color = [204, 170, 119, 255];
   this.growth = 0;
 };
 
 var SwarmerQueen = function(g, x, y) {
   Swarmer.call(this, g, x, y);
-  this.color = '#9c5';
+  this.color = [153, 204, 85, 255];
   this.life = 1000;
   this.gestationBase = 20;
   this.gestation = this.resetGestation();
@@ -850,7 +849,7 @@ SwarmerQueen.prototype.interact = function(entity) {
 
 var SwarmerSoldier = function(g, x, y) {
   Swarmer.call(this, g, x, y);
-  this.color = '#ba6';
+  this.color = [187, 170, 102, 255];
 }
 SwarmerSoldier.prototype = Object.create(Swarmer.prototype);
 SwarmerSoldier.prototype.constructor = SwarmerSoldier;
@@ -1052,6 +1051,7 @@ var Game = function(ctx) {
   this.gameLoopInterval = null;
   this.rafIntv = null;
   this.fpsts = this.fps = null;
+  this.framebuf = new Uint8Array(4*this.ground.w*this.ground.h);
 
   this.keysDown = new Set();
   this.unpaused = true;
@@ -1182,9 +1182,11 @@ Game.prototype = {
   },
   paint() {
     var ctx = this.ctx, g = this.ground;
-    // Rooms
     var a = g.a, w = g.w, h = g.h, bs = g.bs;
     var l = a.length;
+    var img = ctx.createImageData(w * bs, h * bs);
+    var buf = img.data;
+    // Rooms
     var i = 0;
     var j = 0;
     for (var k = 0; k < l; k++) {
@@ -1194,8 +1196,7 @@ Game.prototype = {
       } else {
         var c = g.noise[k];
       }
-      ctx.fillStyle = 'rgb(' + c + ',' + c + ',' + c + ')';
-      ctx.fillRect(i * bs, j * bs, bs, bs);
+      this.paintBlock(buf, i, j, c, c, c, 255);
       i++;
       if (i >= w) {
         i = 0;
@@ -1204,31 +1205,67 @@ Game.prototype = {
     }
     // Visibility
     var visible = g.vision(g.prot.x, g.prot.y, 5);
-    for (var i = 0; i < visible.length; i++) {this.fillTile(visible[i], 'rgba(255,255,200,0.1)');}
+    for (var i = 0; i < visible.length; i++) {
+      this.overpaintTile(buf, visible[i], 255, 255, 200, 25);
+    }
     // Portal
-    this.paintEntity(g.portal);
+    this.paintEntity(g.portal, buf);
     for (var i = 0; i < g.diggers.length; i++) {
-      this.paintEntity(g.diggers[i]);
+      this.paintEntity(g.diggers[i], buf);
     }
     for (var i = 0; i < g.parasites.length; i++) {
-      this.paintEntity(g.parasites[i]);
+      this.paintEntity(g.parasites[i], buf);
     }
     for (var i = 0; i < g.swarmers.length; i++) {
-      this.paintEntity(g.swarmers[i]);
+      this.paintEntity(g.swarmers[i], buf);
     }
     // Protagonist
-    if (!g.prot.isDead()) {this.paintEntity(g.prot);}
+    if (!g.prot.isDead()) {this.paintEntity(g.prot, buf);}
+    ctx.putImageData(img, 0, 0);
   },
-  paintEntity(entity) {
-    this.fillTile(this.ground.idx(entity.x, entity.y), entity.color);
+  paintEntity(entity, buf) {
+    var color = entity.color;
+    this.paintBlock(buf, entity.x, entity.y,
+      color[0], color[1], color[2], color[3]);
   },
-  fillTile(tile, style) {
-    var ctx = this.ctx, g = this.ground;
-    var bs = g.bs;
-    var pos = g.pos(tile);
-    var i = pos[0], j = pos[1];
-    ctx.fillStyle = style || 'red';
-    ctx.fillRect(i * bs, j * bs, bs, bs);
+  paintTile(buf, tile, r, g, b, a) {
+    var pos = this.ground.pos(tile);
+    this.paintBlock(buf, pos[0], pos[1], r, g, b, a);
+  },
+  overpaintTile(buf, tile, r, g, b, a) {
+    var pos = this.ground.pos(tile);
+    this.overpaintBlock(buf, pos[0], pos[1], r, g, b, a);
+  },
+  paintBlock(buf, x, y, r, g, b, a) {
+    var bs = this.ground.bs >>> 0, w = (this.ground.w*bs) >>> 0;
+    var jmax = y*bs + bs, imax = x*bs + bs;
+    // i, j: pixel position
+    for (var j = y*bs; j < jmax; j++) {
+      var jw = j*w;
+      for (var i = x*bs; i < imax; i++) {
+        var pi = (jw+i)*4;  // pixel index
+        buf[pi + 0] = r;
+        buf[pi + 1] = g;
+        buf[pi + 2] = b;
+        buf[pi + 3] = a;
+      }
+    }
+  },
+  overpaintBlock(buf, x, y, r, g, b, a) {
+    var bs = this.ground.bs >>> 0, w = (this.ground.w*bs) >>> 0;
+    var ao = (255 - a) >>> 0, an = a >>> 0;
+    var jmax = y*bs + bs, imax = x*bs + bs;
+    // i, j: pixel position
+    for (var j = y*bs; j < jmax; j++) {
+      var jw = j*w;
+      for (var i = x*bs; i < imax; i++) {
+        var pi = (jw+i)*4;  // pixel index
+        buf[pi + 0] = ((ao * buf[pi + 0] + an * r) / 255) >>> 0;
+        buf[pi + 1] = ((ao * buf[pi + 1] + an * g) / 255) >>> 0;
+        buf[pi + 2] = ((ao * buf[pi + 2] + an * b) / 255) >>> 0;
+        buf[pi + 3] = 255;
+      }
+    }
   },
 
   // Keyboard input
