@@ -1051,7 +1051,7 @@ var Game = function(ctx) {
   this.gameLoopInterval = null;
   this.rafIntv = null;
   this.fpsts = this.fps = null;
-  this.framebuf = new Uint8Array(4*this.ground.w*this.ground.h);
+  this.framebuf = ctx.createImageData(this.ground.w * this.ground.bs, this.ground.h * this.ground.bs);
 
   this.keysDown = new Set();
   this.unpaused = true;
@@ -1184,7 +1184,7 @@ Game.prototype = {
     var ctx = this.ctx, g = this.ground;
     var a = g.a, w = g.w, h = g.h, bs = g.bs;
     var l = a.length;
-    var img = ctx.createImageData(w * bs, h * bs);
+    var img = this.framebuf;
     var buf = img.data;
     // Rooms
     var i = 0;
